@@ -12,6 +12,7 @@
 namespace XlsInventory;
 
 use WP_REST_Request;
+use WP_REST_Response;
 
 /**
  * Class managing excel file data extraction
@@ -74,6 +75,13 @@ class Xlsapi {
 			'/get-iris'       => array(
 				'methods'             => \WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'get_iris' ),
+				'permission_callback' => function () {
+					return true;
+				},
+			),
+			'/geocode'        => array(
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'get_geocode' ),
 				'permission_callback' => function () {
 					return true;
 				},
@@ -1248,5 +1256,76 @@ class Xlsapi {
 		$response->set_status( 200 );
 		$response->set_data( $returned_iris );
 		return $response;
+	}
+
+	public function get_geocode( WP_REST_Request $request ) {
+
+		$params  = $request->get_params();
+		$address = $params['address'];
+		if ( empty( $address ) ) {
+			return new \WP_Error( 'missing_address', 'Address parameter is required', array( 'status' => 400 ) );
+		}
+		if ( ! is_string( $address ) ) {
+			return new \WP_Error( 'invalid_address', 'Address parameter must be a string', array( 'status' => 400 ) );
+		}
+
+		$geocode_data = $this->get_geocode_from_google( $address );
+
+		$rest_response = new WP_REST_Response();
+		if ( is_wp_error( $geocode_data ) ) {
+			$rest_response->set_status( 500 );
+			$rest_response->set_data( array( 'error' => $geocode_data->get_error_message() ) );
+			return $rest_response;
+		}
+		if ( empty( $geocode_data ) ) {
+			$rest_response->set_status( 404 );
+			$rest_response->set_data( array( 'error' => 'No geocode data found' ) );
+			return $rest_response;
+		}
+		if ( ! is_array( $geocode_data ) ) {
+			$rest_response->set_status( 500 );
+			$rest_response->set_data( array( 'error' => 'Invalid geocode data format' ) );
+			return $rest_response;
+		}
+
+
+		// Set the response data and status
+		$rest_response->set_status( 200 );
+		$rest_response->set_data( $geocode_data );
+		$rest_response->set_headers( array( 'Content-Type' => 'application/json' ) );
+		return $rest_response;
+	}
+
+	/**
+	 * Call Google Maps Geocoding API to get geocode data.
+	 *
+	 * @param string $address The address to geocode.
+	 * @return array|WP_Error Geocode data or error.
+	 */
+	private function get_geocode_from_google( $address ) {
+		$api_key  = get_option( 'invimport_google_api_key' ); // Replace with your Google Maps API key
+		$base_url = 'https://maps.googleapis.com/maps/api/geocode/json';
+
+		// Build the request URL
+		$url = $base_url . '?address=' . urlencode( $address ) . '&language=fr&key=' . $api_key;
+
+		// Make the HTTP request
+		$response = wp_remote_get( $url );
+
+		// Check for errors
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		// Parse the response
+		$body = wp_remote_retrieve_body( $response );
+		$data = json_decode( $body, true );
+
+		// Check for a valid response
+		if ( isset( $data['status'] ) && $data['status'] === 'OK' ) {
+			return $data;
+		} else {
+			return new \WP_Error( 'geocode_error', 'Failed to retrieve geocode data: ' . $data['error_message'], $data );
+		}
 	}
 }

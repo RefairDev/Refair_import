@@ -6,7 +6,7 @@ const
     domainName = "[TO_BE_COMPLETED]",
     type = "plugins",
     projectName = "inv_import",
-    serverPath = 'C:/Workzone/wamp64/www/',
+    serverPath = '[TO_BE_COMPLETED]',
 
 
     // source and build folders
@@ -182,6 +182,21 @@ var syncOpts = {
     }
 };
 
+// text domain files
+var languages={
+    src   : 'languages/**/*.mo',
+    dist  : destFolder + 'languages/'
+  }
+  
+function languagesCopy () {
+languages.dist = destFolder + 'languages/';
+return gulp.src(languages.src)
+  .pipe(debug({title: "languages_task:"}))
+  .pipe(newer(languages.dist))
+  .pipe(gulp.dest(languages.dist))
+  .pipe(browsersync ? browsersync.reload({ stream: true }) : gutil.noop()); 
+}
+
 
 // browser-sync
 function browsersyncManagement(cb) {
@@ -198,6 +213,7 @@ function watch(cb) {
     // page changes
     gulp.watch(dir.src, webpack_bundle)
     gulp.watch(php.src, gulp.series(browsersyncManagement, phpCopy));
+    gulp.watch(languages.src, gulp.series(browsersyncManagement, languagesCopy));
     gulp.watch(geojson.src, gulp.series(browsersyncManagement, geojsonCopy));
     gulp.watch(css.srcAdmin, gulp.series(browsersyncManagement, cssTaskAdmin));
 
@@ -208,7 +224,7 @@ function watch(cb) {
 };
 
 function zipAll() {
-    return gulp.src(dir.dist)
+    return gulp.src(dir.dist+"/*")
         .pipe(gulpzip(projectName + '.zip'))
         .pipe(gulp.dest('dist'))
 }
@@ -224,7 +240,7 @@ exports.dist = gulp.series(
     startupWrapper,
     setProdEnv,
     clean,
-    gulp.parallel(gulp.series(phpCopy, geojsonCopy)),
+    gulp.parallel(gulp.series(phpCopy, geojsonCopy,languagesCopy)),
     gulp.parallel(gulp.series(composer_copy, vendors_lib)),
     gulp.parallel(gulp.series(cssTaskAdmin, webpack_bundle)),
     zipAll
@@ -234,7 +250,7 @@ exports.dist = gulp.series(
 exports.default = gulp.series(
     startupWrapper,
     setDevEnv,
-    gulp.parallel(gulp.series(phpCopy, geojsonCopy)),
+    gulp.parallel(gulp.series(phpCopy, geojsonCopy,languagesCopy)),
     gulp.parallel(gulp.series(composer_copy, vendors_lib)),
     gulp.parallel(gulp.series(cssTaskAdmin, webpack_bundle)),
     gulp.parallel(gulp.series(watch, browsersyncManagement))

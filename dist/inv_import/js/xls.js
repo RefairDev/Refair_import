@@ -43527,6 +43527,7 @@ function _setPrototypeOf(t, e) { return _setPrototypeOf = Object.setPrototypeOf 
 var uploadUrl = "/wp-json/xlsinv/v1/upload-deposit";
 var setLocUrl = "/wp-json/xlsinv/v1/set-location-file";
 var irisUrl = "/wp-json/xlsinv/v1/get-iris";
+var geocodeUrl = "/wp-json/xlsinv/v1/geocode";
 function ConvertFormToJSON(form) {
   var array = jQuery(form).serializeArray();
   var json = {};
@@ -44373,7 +44374,7 @@ var App = /*#__PURE__*/function (_Component) {
     key: "handleAddressCell",
     value: function handleAddressCell(cell) {
       var cellValue = App.prototype.getCellValue(cell, App.prototype.getCellValueType(cell.value));
-      fetch("https://maps.googleapis.com/maps/api/geocode/json?address=".concat(cellValue, "&language=fr&region=fr&key=").concat(this.apikey)).then(function (response) {
+      fetch(geocodeUrl + "?address=".concat(cellValue)).then(function (response) {
         return response.json();
       }).then(function (resp) {
         if (!this.state.showModal) {
@@ -44397,7 +44398,7 @@ var App = /*#__PURE__*/function (_Component) {
               }
             default:
               {
-                alert('Error: Google geocode returned "' + resp.status + '"');
+                alert('Error: Google geocode returned "' + resp.error + '"');
               }
           }
           return addressesProposals;
