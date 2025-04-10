@@ -15,6 +15,7 @@ import $ from 'jquery';
 const uploadUrl = "/wp-json/xlsinv/v1/upload-deposit";
 const setLocUrl = "/wp-json/xlsinv/v1/set-location-file";
 const irisUrl =  "/wp-json/xlsinv/v1/get-iris";
+const geocodeUrl =  "/wp-json/xlsinv/v1/geocode";
 
 function ConvertFormToJSON(form){
     var array = jQuery(form).serializeArray();
@@ -685,7 +686,7 @@ class App extends Component {
 
 		let cellValue = App.prototype.getCellValue(cell,App.prototype.getCellValueType(cell.value));
 
-		fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${cellValue}&language=fr&region=fr&key=${this.apikey}`)
+		fetch(geocodeUrl+`?address=${cellValue}`)
 		.then(function(response) {
 			return response.json();
 		})
@@ -708,7 +709,7 @@ class App extends Component {
 						}
 						default:
 						{
-							alert('Error: Google geocode returned "'+ resp.status +'"' );
+							alert('Error: Google geocode returned "'+ resp.error +'"' );
 							
 						}
 					}
