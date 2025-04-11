@@ -224,7 +224,7 @@ function watch(cb) {
 };
 
 function zipAll() {
-    return gulp.src(dir.dist+"/*")
+    return gulp.src(dir.dist+"/**")
         .pipe(gulpzip(projectName + '.zip'))
         .pipe(gulp.dest('dist'))
 }
