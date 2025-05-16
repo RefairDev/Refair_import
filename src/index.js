@@ -63,8 +63,6 @@ class App extends Component {
 		this.getCellValueType = this.getCellValueType.bind(this);
 		this.getCellValue = this.getCellValue.bind(this);
 		this.toggleUpdateQty = this.toggleUpdateQty.bind(this);
-
-		this.apikey = invimport_google_api_key;
 		this.chunk  = 50;
 		this.firstInventoryRow = 14;
 		this.notifSkeleton = JSON.stringify({"level":"","context":"","message":""});
