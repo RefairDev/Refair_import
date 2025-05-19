@@ -42,8 +42,6 @@ function add_plugin_script( $hook ) {
 
 	wp_register_script( 'xls_script', XLS_PLUGIN_URI . 'js/xls.js', array(), gmdate( 'YmdHis', filemtime( XLS_PLUGIN_DIR . 'js/xls.js' ) ), array( 'in_footer' => true ) );
 
-	wp_localize_script( 'xls_script', 'invimport_google_api_key', get_option( 'invimport_google_api_key', '' ) );
-
 	wp_enqueue_script( 'xls_script' );
 }
 
