@@ -43528,7 +43528,7 @@ var uploadUrl = "/wp-json/xlsinv/v1/upload-deposit";
 var setLocUrl = "/wp-json/xlsinv/v1/set-location-file";
 var irisUrl = "/wp-json/xlsinv/v1/get-iris";
 var localityGeometryUrl = "/wp-json/xlsinv/v1/locality-geometry";
-var adminLimitUrl = "https://apicarto.ign.fr/api/limites-administratives/commune?";
+var adminLimitUrl = "https://apicarto.ign.fr/api/limites-administratives/commune";
 var geocodeUrl = "/wp-json/xlsinv/v1/geocode";
 function ConvertFormToJSON(form) {
   var array = jQuery(form).serializeArray();
@@ -43611,9 +43611,9 @@ var App = /*#__PURE__*/function (_Component) {
           "name": "Commune",
           "options": {}
         },
-        "iris": {
+        "insee_code": {
           "cell": "",
-          "name": "Iris",
+          "name": "Code INSEE de la commune",
           "options": {}
         },
         "dismantle_date": {
@@ -44463,7 +44463,10 @@ var App = /*#__PURE__*/function (_Component) {
     value: function closeModal() {
       var siteData = this.state.siteData;
       var exactAddress = this.state.addressesProposals[this.state.addressProposalChecked];
-      this.manageInseeData([exactAddress.lng, exactAddress.lat]);
+      this.manageInseeData({
+        'lng': exactAddress.lng,
+        'lat': exactAddress.lat
+      });
       siteData.city = exactAddress.city;
       delete exactAddress.city;
       siteData.address = exactAddress;
@@ -44523,7 +44526,7 @@ var App = /*#__PURE__*/function (_Component) {
     key: "manageInseeData",
     value: function manageInseeData(cityData) {
       var _this7 = this;
-      fetch(adminLimitUrl + "?lon=".concat(cityData.lon, "+'lat='").concat(cityData.lat), {
+      fetch(adminLimitUrl + "/?lon=".concat(cityData.lng, "&lat=").concat(cityData.lat), {
         method: 'GET',
         // or 'PUT'
         headers: {
@@ -44533,33 +44536,48 @@ var App = /*#__PURE__*/function (_Component) {
         return response.json();
       }.bind(this)).then(function (respBody) {
         var siteData = _this7.state.siteData;
-        siteData.inseeCode = respBody.features.properties.insee_com;
+        siteData.insee_code = respBody.features[0].properties.insee_com;
         _this7.setState({
           "siteData": siteData,
           "showModal": false,
           "isRecordable": true
         });
-        sendLocalityGeometry(JSON.stringify({
-          'insee_com': respBody.properties.insee_com,
-          'geometry': respBody.features[0].geometry.coordinates
-        }));
+        _this7.sendLocalityGeometry({
+          'locality_name': respBody.features[0].properties.nom_com,
+          'locality_code': siteData.insee_code,
+          'geometry': JSON.stringify(respBody.features[0].geometry)
+        });
       });
     }
   }, {
     key: "sendLocalityGeometry",
     value: function sendLocalityGeometry(localityGeometry) {
-      fetch(localityGeometryUrl + "", {
+      var _this8 = this;
+      fetch(localityGeometryUrl, {
         method: 'POST',
         // or 'PUT'
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          "localityGeometry": localityGeometry
-        })
+        body: JSON.stringify(localityGeometry)
       }).then(function (response) {
         return response.json();
-      }.bind(this)).then(function (respBody) {});
+      }.bind(this)).then(function (respBody) {
+        if (respBody.hasOwnProperty('data') && respBody.data.hasOwnProperty('status')) {
+          if (500 === respBody.data.status) {
+            _this8.addNotification("Attention", "Contour de commune", "Une erreur est survenue lors du traitement du contour de la commune par le serveur");
+          }
+          if (400 === respBody.data.status) {
+            _this8.addNotification("Attention", "Contour de commune", "Le serveur manque d'\xE9l\xE9ments pour traiter la requ\xEAte");
+          }
+          if (404 === respBody.data.status) {
+            _this8.addNotification("Attention", "Contour de commune", "La requ\xEAte d'envoi de contour s'est perdue");
+          }
+          if (200 === respBody.data.status) {
+            _this8.addNotification("Info", "Contour de commune", "Le contour de la commune a \xE9t\xE9 enregistr\xE9 avec succ\xE8s");
+          }
+        }
+      });
     }
   }, {
     key: "handleSelectOverviewSheetChange",
@@ -44618,14 +44636,14 @@ var App = /*#__PURE__*/function (_Component) {
   }, {
     key: "render",
     value: function render() {
-      var _this8 = this;
+      var _this9 = this;
       var rows = Object.entries(this.state.siteData).map(function (_ref, idx) {
         var _ref2 = _slicedToArray(_ref, 2),
           key = _ref2[0],
           value = _ref2[1];
         return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(_components_Row_js__WEBPACK_IMPORTED_MODULE_7__["default"], {
           key: key,
-          name: _this8.cellRefs["overview"][key]['name'],
+          name: _this9.cellRefs["overview"][key]['name'],
           value: value
         });
       });
@@ -44664,8 +44682,8 @@ var App = /*#__PURE__*/function (_Component) {
           type: "radio",
           name: "selectedAddress",
           value: idx,
-          onChange: _this8.handleLocationProposalChange,
-          checked: idx == _this8.state.addressProposalChecked
+          onChange: _this9.handleLocationProposalChange,
+          checked: idx == _this9.state.addressProposalChecked
         }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement("label", {
           htmlFor: "selectedAddress-".concat(idx)
         }, elt.location));
