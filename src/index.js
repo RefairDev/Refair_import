@@ -15,6 +15,8 @@ import $ from 'jquery';
 const uploadUrl = "/wp-json/xlsinv/v1/upload-deposit";
 const setLocUrl = "/wp-json/xlsinv/v1/set-location-file";
 const irisUrl =  "/wp-json/xlsinv/v1/get-iris";
+const localityGeometryUrl = "/wp-json/xlsinv/v1/locality-geometry";
+const adminLimitUrl =  "https://apicarto.ign.fr/api/limites-administratives/commune";
 const geocodeUrl =  "/wp-json/xlsinv/v1/geocode";
 
 function ConvertFormToJSON(form){
@@ -78,8 +80,8 @@ class App extends Component {
 				"building_name":  		{"cell":"D10",						"name":"Nom du batiment", 						"options":{}},
 				"provider":  			{"cell":"D12",						"name":"Nom du fournisseur", 					"options":{}},
 				"address":  			{"cell":"D11",						"name":"Adresse", 								"options":{								"processing": this.handleAddressCell}},
-				"city":  				{"cell":"",							"name":"Commune", 								"options":{}},					
-				"iris":  				{"cell":"",							"name":"Iris", 									"options":{}},				
+				"city":  				{"cell":"",							"name":"Commune", 								"options":{}},
+				"insee_code":			{"cell":"",							"name":"Code INSEE de la commune", 				"options":{}},
 				"dismantle_date":		{"cell":"D13",						"name":"Disponibilité prévue", 					"options":{"check":this.checkDate, 		"processing": this.processDateCell}},
 				"availability_details":	{"cell":"D14",						"name":"Détails sur disponibilité", 			"options":{}},
 				"content":				{"cell":"D15",						"name":"Description",		 					"options":{}},
@@ -696,7 +698,12 @@ class App extends Component {
 						case "OK":
 						{
 							resp.results.forEach(function(valeurCourante,index ,resultArray){
-								addressesProposals.push({"location":valeurCourante.formatted_address,"lat": valeurCourante.geometry.location.lat,"lng":valeurCourante.geometry.location.lng }) ;
+								let locality = '';
+								let filteredLocalityComponent = valeurCourante.address_components.filter((elt)=>elt.types.includes("locality"))
+								if ( filteredLocalityComponent.length > 0 ){
+									locality = filteredLocalityComponent[0].long_name;
+								}
+								addressesProposals.push({"location":valeurCourante.formatted_address,"lat": valeurCourante.geometry.location.lat,"lng":valeurCourante.geometry.location.lng, "city":locality }) ;
 							});
 							break;
 						}
@@ -761,31 +768,61 @@ class App extends Component {
 	  	let {siteData} = this.state;
 	  	let exactAddress = this.state.addressesProposals[this.state.addressProposalChecked];
 
-		/* TODO get public location */
-		  
-		let city= this.extractCity(exactAddress.location);
-		this.getIris(city,[exactAddress.lng,exactAddress.lat]);
+		this.manageInseeData({'lng':exactAddress.lng, 'lat': exactAddress.lat});
+		siteData.city = exactAddress.city;
+		delete(exactAddress.city)
 		siteData.address = exactAddress;
-		siteData.city = city;
 	  	this.setState({"siteData" : siteData,"showModal":false});
 	}
 
-	extractCity(fullAddress){
-		let city= "";
-		const regex = /, [0-9]{5} (.*), /;
+	// extractCity(fullAddress){
+	// 	let city= "";
+	// 	const regex = /, [0-9]{5} (.*), /;
+	// 	let m;
+	// 	if ((m = regex.exec(fullAddress)) !== null) {
+	// 		// The result can be accessed through the `m`-variable.
+	// 		city = m[1];
+	// 	}
+	// 	/* TODO get city form extact adress*/
+	// 	return city;
+	// }
+
+	extractPostalCode(fullAddress){
+		let postalCode= "";
+		const regex = /, ([0-9]{5}) , /;
 		let m;
 		if ((m = regex.exec(fullAddress)) !== null) {
 			// The result can be accessed through the `m`-variable.
-			city = m[1];
+			postalCode = m[1];
 		}
 		/* TODO get city form extact adress*/
-		return city;
-	}
+		return postalCode;
+	}	
 
-	getIris(city,coords){
-		let iris={};
+	// getIris(city,coords){
+	// 	let iris={};
 
-		fetch(irisUrl+`/?city=${city}&coords=${coords}`, {
+	// 	fetch(irisUrl+`/?city=${city}&coords=${coords}`, {
+	// 		method: 'GET', // or 'PUT'
+	// 		headers: {
+	// 			'Content-Type': 'application/json',
+	// 		},
+	// 	}).then(function(response) {
+
+	// 		return response.json();
+			
+	// 	}.bind(this)).then(respBody =>{
+
+	// 		let {siteData}= this.state;
+	// 		siteData.iris = respBody;
+	//   		this.setState({"siteData":siteData,"showModal":false, "isRecordable":true});			
+	// 	});
+		
+	// 	/* TODO get iris from iris list with city name*/
+	// }
+
+	manageInseeData(cityData){
+		fetch(adminLimitUrl+`/?lon=${cityData.lng}&lat=${cityData.lat}`, {
 			method: 'GET', // or 'PUT'
 			headers: {
 				'Content-Type': 'application/json',
@@ -795,13 +832,53 @@ class App extends Component {
 			return response.json();
 			
 		}.bind(this)).then(respBody =>{
-
+			
 			let {siteData}= this.state;
-			siteData.iris = respBody;
-	  		this.setState({"siteData":siteData,"showModal":false, "isRecordable":true});			
+			siteData.insee_code = respBody.features[0].properties.insee_com;
+	  		this.setState({"siteData":siteData,"showModal":false, "isRecordable":true});
+			this.sendLocalityGeometry({'locality_name': respBody.features[0].properties.nom_com, 'locality_code':siteData.insee_code,'geometry':JSON.stringify(respBody.features[0].geometry)});
 		});
+
 		
-		/* TODO get iris from iris list with city name*/
+	}
+
+	sendLocalityGeometry(localityGeometry){
+	
+
+		fetch(localityGeometryUrl, {
+			method: 'POST', // or 'PUT'
+			headers: {
+				'Content-Type': 'application/json',
+			},			
+			body: JSON.stringify(localityGeometry),
+		}).then(function(response) {
+
+			return response.json();
+			
+		}.bind(this)).then(respBody =>{
+			
+			if ( respBody.hasOwnProperty('data') && respBody.data.hasOwnProperty('status')){
+
+				if ( 500 === respBody.data.status ){
+					this.addNotification("Attention","Contour de commune",`Une erreur est survenue lors du traitement du contour de la commune par le serveur`);
+				}
+
+				if ( 400 === respBody.data.status ){
+					this.addNotification("Attention","Contour de commune",`Le serveur manque d'éléments pour traiter la requête`);
+				}
+
+				if ( 404 === respBody.data.status ){
+					this.addNotification("Attention","Contour de commune",`La requête d'envoi de contour s'est perdue`);
+				}
+
+				if ( 200 === respBody.data.status ){
+					this.addNotification("Info","Contour de commune",`Le contour de la commune a été enregistré avec succès`);
+
+				}
+
+			}
+
+		});
 	}
 
 
