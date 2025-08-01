@@ -43527,6 +43527,8 @@ function _setPrototypeOf(t, e) { return _setPrototypeOf = Object.setPrototypeOf 
 var uploadUrl = "/wp-json/xlsinv/v1/upload-deposit";
 var setLocUrl = "/wp-json/xlsinv/v1/set-location-file";
 var irisUrl = "/wp-json/xlsinv/v1/get-iris";
+var localityGeometryUrl = "/wp-json/xlsinv/v1/locality-geometry";
+var adminLimitUrl = "https://apicarto.ign.fr/api/limites-administratives/commune?";
 var geocodeUrl = "/wp-json/xlsinv/v1/geocode";
 function ConvertFormToJSON(form) {
   var array = jQuery(form).serializeArray();
@@ -44382,10 +44384,18 @@ var App = /*#__PURE__*/function (_Component) {
             case "OK":
               {
                 resp.results.forEach(function (valeurCourante, index, resultArray) {
+                  var locality = '';
+                  var filteredLocalityComponent = valeurCourante.address_components.filter(function (elt) {
+                    return elt.types.includes("locality");
+                  });
+                  if (filteredLocalityComponent.length > 0) {
+                    locality = filteredLocalityComponent[0].long_name;
+                  }
                   addressesProposals.push({
                     "location": valeurCourante.formatted_address,
                     "lat": valeurCourante.geometry.location.lat,
-                    "lng": valeurCourante.geometry.location.lng
+                    "lng": valeurCourante.geometry.location.lng,
+                    "city": locality
                   });
                 });
                 break;
@@ -44453,37 +44463,67 @@ var App = /*#__PURE__*/function (_Component) {
     value: function closeModal() {
       var siteData = this.state.siteData;
       var exactAddress = this.state.addressesProposals[this.state.addressProposalChecked];
-
-      /* TODO get public location */
-
-      var city = this.extractCity(exactAddress.location);
-      this.getIris(city, [exactAddress.lng, exactAddress.lat]);
+      this.manageInseeData([exactAddress.lng, exactAddress.lat]);
+      siteData.city = exactAddress.city;
+      delete exactAddress.city;
       siteData.address = exactAddress;
-      siteData.city = city;
       this.setState({
         "siteData": siteData,
         "showModal": false
       });
     }
+
+    // extractCity(fullAddress){
+    // 	let city= "";
+    // 	const regex = /, [0-9]{5} (.*), /;
+    // 	let m;
+    // 	if ((m = regex.exec(fullAddress)) !== null) {
+    // 		// The result can be accessed through the `m`-variable.
+    // 		city = m[1];
+    // 	}
+    // 	/* TODO get city form extact adress*/
+    // 	return city;
+    // }
   }, {
-    key: "extractCity",
-    value: function extractCity(fullAddress) {
-      var city = "";
-      var regex = /, [0-9]{5} (.*), /;
+    key: "extractPostalCode",
+    value: function extractPostalCode(fullAddress) {
+      var postalCode = "";
+      var regex = /, ([0-9]{5}) , /;
       var m;
       if ((m = regex.exec(fullAddress)) !== null) {
         // The result can be accessed through the `m`-variable.
-        city = m[1];
+        postalCode = m[1];
       }
       /* TODO get city form extact adress*/
-      return city;
+      return postalCode;
     }
+
+    // getIris(city,coords){
+    // 	let iris={};
+
+    // 	fetch(irisUrl+`/?city=${city}&coords=${coords}`, {
+    // 		method: 'GET', // or 'PUT'
+    // 		headers: {
+    // 			'Content-Type': 'application/json',
+    // 		},
+    // 	}).then(function(response) {
+
+    // 		return response.json();
+
+    // 	}.bind(this)).then(respBody =>{
+
+    // 		let {siteData}= this.state;
+    // 		siteData.iris = respBody;
+    //   		this.setState({"siteData":siteData,"showModal":false, "isRecordable":true});			
+    // 	});
+
+    // 	/* TODO get iris from iris list with city name*/
+    // }
   }, {
-    key: "getIris",
-    value: function getIris(city, coords) {
+    key: "manageInseeData",
+    value: function manageInseeData(cityData) {
       var _this7 = this;
-      var iris = {};
-      fetch(irisUrl + "/?city=".concat(city, "&coords=").concat(coords), {
+      fetch(adminLimitUrl + "?lon=".concat(cityData.lon, "+'lat='").concat(cityData.lat), {
         method: 'GET',
         // or 'PUT'
         headers: {
@@ -44493,15 +44533,33 @@ var App = /*#__PURE__*/function (_Component) {
         return response.json();
       }.bind(this)).then(function (respBody) {
         var siteData = _this7.state.siteData;
-        siteData.iris = respBody;
+        siteData.inseeCode = respBody.features.properties.insee_com;
         _this7.setState({
           "siteData": siteData,
           "showModal": false,
           "isRecordable": true
         });
+        sendLocalityGeometry(JSON.stringify({
+          'insee_com': respBody.properties.insee_com,
+          'geometry': respBody.features[0].geometry.coordinates
+        }));
       });
-
-      /* TODO get iris from iris list with city name*/
+    }
+  }, {
+    key: "sendLocalityGeometry",
+    value: function sendLocalityGeometry(localityGeometry) {
+      fetch(localityGeometryUrl + "", {
+        method: 'POST',
+        // or 'PUT'
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          "localityGeometry": localityGeometry
+        })
+      }).then(function (response) {
+        return response.json();
+      }.bind(this)).then(function (respBody) {});
     }
   }, {
     key: "handleSelectOverviewSheetChange",

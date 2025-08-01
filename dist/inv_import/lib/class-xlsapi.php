@@ -11,6 +11,7 @@
 
 namespace XlsInventory;
 
+use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
 
@@ -65,21 +66,35 @@ class Xlsapi {
 	public function __construct() {
 
 		$this->routes = array(
-			'/upload-deposit' => array(
+			'/upload-deposit'    => array(
 				'methods'             => \WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'handle_deposit' ),
 				'permission_callback' => function () {
 					return true;
 				},
 			),
-			'/get-iris'       => array(
+			'/get-iris'          => array(
 				'methods'             => \WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'get_iris' ),
 				'permission_callback' => function () {
 					return true;
 				},
 			),
-			'/geocode'        => array(
+			'/get-insee-code'    => array(
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'get_insee_code' ),
+				'permission_callback' => function () {
+					return true;
+				},
+			),
+			'/locality-geometry' => array(
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'set_locality_geometry' ),
+				'permission_callback' => function () {
+					return true;
+				},
+			),
+			'/geocode'           => array(
 				'methods'             => \WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'get_geocode' ),
 				'permission_callback' => function () {
@@ -343,10 +358,10 @@ class Xlsapi {
 	}
 
 	/**
-	 * Undocumented function
+	 * Extract deposit pictures from input data.
 	 *
-	 * @param  [type] $pictures_refs
-	 * @param  [type] $inv_ref
+	 * @param  array  $pictures_refs Array of picture references or single string reference.
+	 * @param  string $inv_ref Reference of the deposit.
 	 * @return void
 	 */
 	protected function extract_deposit_pictures( $pictures_refs, $inv_ref ) {
@@ -1221,7 +1236,7 @@ class Xlsapi {
 
 		if ( 0.0 !== $coords[0] && 0.0 !== $coords[1] ) {
 			try {
-				$iris_json = file_get_contents( GEOJSON_FILE );
+				$iris_json = file_get_contents( geojson_FILE );
 
 				if ( false !== $iris_json ) {
 					$iris = json_decode( $iris_json, true );
@@ -1288,7 +1303,6 @@ class Xlsapi {
 			return $rest_response;
 		}
 
-
 		// Set the response data and status
 		$rest_response->set_status( 200 );
 		$rest_response->set_data( $geocode_data );
@@ -1327,5 +1341,224 @@ class Xlsapi {
 		} else {
 			return new \WP_Error( 'geocode_error', 'Failed to retrieve geocode data: ' . $data['error_message'], $data );
 		}
+	}
+
+
+	public function set_locality_geometry( WP_REST_Request $request ) {
+		$body_raw = $request->get_body();
+
+		if ( empty( $body_raw ) ) {
+			return new \WP_Error( 'empty_body', 'Request body cannot be empty', array( 'status' => 400 ) );
+		}
+		$body = json_decode( $body_raw, true );
+		if ( ! isset( $body['locality'] ) || ! isset( $body['geometry'] ) ) {
+			return new \WP_Error( 'missing_parameters', 'Both locality and geometry parameters are required', array( 'status' => 400 ) );
+		}
+
+		$locality = sanitize_text_field( $body['locality'] );
+		$geometry = $body['geometry'];
+
+		if ( empty( $locality ) || empty( $geometry ) ) {
+			return new \WP_Error( 'invalid_parameters', 'Locality and geometry cannot be empty', array( 'status' => 400 ) );
+		}
+
+		$this->insert_city_term_n_meta( $locality, $geometry );
+
+		return new WP_REST_Response( array( 'message' => 'Geometry set successfully for locality: ' . $locality ), 200 );
+	}
+
+	/**
+	 * Undocumented function
+	 *
+	 * @param  string $locality Name of the locality to insert as term.
+	 * @param  string $geometry Geometry data to associate with the term.
+	 * @return mixed
+	 * @throws \WP_Error If term insertion or meta addition fails.
+	 */
+	public function insert_city_term_n_meta( $locality, $geometry ) {
+
+		$meta_rt        = false;
+		$locality_terms = get_terms(
+			array(
+				'taxonomy'   => 'city',
+				'hide_empty' => false,
+				'name'       => $locality,
+			)
+		);
+
+		if ( is_wp_error( $locality_terms ) || ( is_array( $locality_terms ) && empty( $locality_terms ) ) ) {
+			$locality_term = wp_insert_term( $locality, 'city' );
+		} else {
+			$locality_term = $locality_terms[0];
+		}
+
+		$term_geometry_meta = get_term_meta( $locality_term->term_id, 'geometry', true );
+		if ( empty( $term_geometry_meta ) ) {
+			$meta_rt = add_term_meta( $locality_term->term_id, 'geometry', wp_json_encode( $geometry ), true );
+
+			if ( is_wp_error( $meta_rt ) || ! $meta_rt ) {
+				return new \WP_Error( 'geometry_error', 'Failed to set geometry for locality: ' . $locality, array( 'status' => 500 ) );
+			}
+		}
+		return $meta_rt;
+	}
+
+	/**
+	 * Calculate the centroid of a MultiPolygon from GeoJSON data
+	 *
+	 * @param array $geojson_multipolygon GeoJSON MultiPolygon feature
+	 * @return array|false Centroid coordinates [longitude, latitude] or false on error
+	 */
+	private function calculate_multipolygon_centroid( $geojson_multipolygon ) {
+		// Validate input structure
+		if ( ! is_array( $geojson_multipolygon ) ||
+			! isset( $geojson_multipolygon['type'] ) ||
+			$geojson_multipolygon['type'] !== 'MultiPolygon' ||
+			! isset( $geojson_multipolygon['coordinates'] ) ) {
+			return false;
+		}
+
+		$total_area = 0;
+		$weighted_x = 0;
+		$weighted_y = 0;
+
+		// Process each polygon in the multipolygon
+		foreach ( $geojson_multipolygon['coordinates'] as $polygon ) {
+			// Get the exterior ring (first ring) of each polygon
+			$exterior_ring = $polygon[0];
+
+			// Calculate polygon area and centroid
+			$polygon_area     = $this->calculate_polygon_area( $exterior_ring );
+			$polygon_centroid = $this->calculate_polygon_centroid( $exterior_ring );
+
+			if ( $polygon_area > 0 && $polygon_centroid ) {
+				$total_area += $polygon_area;
+				$weighted_x += $polygon_centroid[0] * $polygon_area;
+				$weighted_y += $polygon_centroid[1] * $polygon_area;
+			}
+		}
+
+		// Calculate weighted average centroid
+		if ( $total_area > 0 ) {
+			return array(
+				$weighted_x / $total_area, // longitude
+				$weighted_y / $total_area,  // latitude
+			);
+		}
+
+		return false;
+	}
+
+	/**
+	 * Calculate the area of a polygon using the shoelace formula
+	 *
+	 * @param array $coordinates Array of coordinate pairs [[lng, lat], ...]
+	 * @return float Polygon area (absolute value)
+	 */
+	private function calculate_polygon_area( $coordinates ) {
+		$n = count( $coordinates );
+		if ( $n < 3 ) {
+			return 0;
+		}
+
+		$area = 0;
+
+		// Apply shoelace formula
+		for ( $i = 0; $i < $n - 1; $i++ ) {
+			$area += ( $coordinates[ $i ][0] * $coordinates[ $i + 1 ][1] ) -
+					( $coordinates[ $i + 1 ][0] * $coordinates[ $i ][1] );
+		}
+
+		return abs( $area ) / 2;
+	}
+
+	/**
+	 * Calculate the centroid of a polygon using geometric center formula
+	 *
+	 * @param array $coordinates Array of coordinate pairs [[lng, lat], ...]
+	 * @return array|false Centroid coordinates [longitude, latitude] or false on error
+	 */
+	private function calculate_polygon_centroid( $coordinates ) {
+		$n = count( $coordinates );
+		if ( $n < 3 ) {
+			return false;
+		}
+
+		$area = $this->calculate_polygon_area( $coordinates );
+		if ( $area == 0 ) {
+			return false;
+		}
+
+		$cx = 0;
+		$cy = 0;
+
+		// Calculate centroid using the standard formula
+		for ( $i = 0; $i < $n - 1; $i++ ) {
+			$x0 = $coordinates[ $i ][0];
+			$y0 = $coordinates[ $i ][1];
+			$x1 = $coordinates[ $i + 1 ][0];
+			$y1 = $coordinates[ $i + 1 ][1];
+
+			$cross = ( $x0 * $y1 ) - ( $x1 * $y0 );
+			$cx   += ( $x0 + $x1 ) * $cross;
+			$cy   += ( $y0 + $y1 ) * $cross;
+		}
+
+		$factor = 1 / ( 6 * $area );
+
+		return array(
+			$cx * $factor, // longitude
+			$cy * $factor,  // latitude
+		);
+	}
+
+	/**
+	 * WordPress helper function to get centroid from GeoJSON feature
+	 *
+	 * @param string $geojson_string JSON string containing GeoJSON data
+	 * @return array|WP_Error Centroid coordinates or WP_Error on failure
+	 */
+	private function wp_get_multipolygon_centroid( $geojson_string ) {
+		// Decode JSON
+		$geojson = json_decode( $geojson_string, true );
+
+		if ( json_last_error() !== JSON_ERROR_NONE ) {
+			return new WP_Error( 'invalid_json', 'Invalid GeoJSON format' );
+		}
+
+		// Handle Feature or FeatureCollection
+		$geometry = null;
+		if ( isset( $geojson['type'] ) ) {
+			switch ( $geojson['type'] ) {
+				case 'Feature':
+					$geometry = $geojson['geometry'];
+					break;
+				case 'MultiPolygon':
+					$geometry = $geojson;
+					break;
+				case 'FeatureCollection':
+					// Take the first MultiPolygon feature found
+					foreach ( $geojson['features'] as $feature ) {
+						if ( isset( $feature['geometry']['type'] ) &&
+							$feature['geometry']['type'] === 'MultiPolygon' ) {
+							$geometry = $feature['geometry'];
+							break;
+						}
+					}
+					break;
+			}
+		}
+
+		if ( ! $geometry || $geometry['type'] !== 'MultiPolygon' ) {
+			return new WP_Error( 'no_multipolygon', 'No MultiPolygon geometry found' );
+		}
+
+		$centroid = $this->calculate_multipolygon_centroid( $geometry );
+
+		if ( $centroid === false ) {
+			return new WP_Error( 'calculation_failed', 'Failed to calculate centroid' );
+		}
+
+		return $centroid;
 	}
 }
