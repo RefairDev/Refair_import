@@ -88,7 +88,7 @@ class Xlsapi {
 				},
 			),
 			'/locality-geometry' => array(
-				'methods'             => \WP_REST_Server::READABLE,
+				'methods'             => \WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'set_locality_geometry' ),
 				'permission_callback' => function () {
 					return true;
@@ -281,7 +281,7 @@ class Xlsapi {
 				'dismantle_date'       => $site_data->dismantle_date,
 				'availability_details' => $site_data->availability_details,
 				'plus_details'         => $site_data->plus_details,
-				'iris'                 => $site_data->iris,
+				'insee_code'           => $site_data->insee_code,
 			);
 
 			if ( ! empty( $meta_input ) ) {
@@ -1351,55 +1351,88 @@ class Xlsapi {
 			return new \WP_Error( 'empty_body', 'Request body cannot be empty', array( 'status' => 400 ) );
 		}
 		$body = json_decode( $body_raw, true );
-		if ( ! isset( $body['locality'] ) || ! isset( $body['geometry'] ) ) {
-			return new \WP_Error( 'missing_parameters', 'Both locality and geometry parameters are required', array( 'status' => 400 ) );
+		if ( ! array_key_exists( 'locality_name', $body ) || ! array_key_exists( 'locality_code', $body ) || ! array_key_exists( 'geometry', $body ) ) {
+			return new \WP_Error( 'missing_parameters', 'locality name locality code and geometry parameters are required', array( 'status' => 400 ) );
 		}
 
-		$locality = sanitize_text_field( $body['locality'] );
-		$geometry = $body['geometry'];
+		$locality_name = sanitize_text_field( $body['locality_name'] );
+		$locality_code = sanitize_text_field( $body['locality_code'] );
+		$geometry      = json_decode( $body['geometry'] );
 
-		if ( empty( $locality ) || empty( $geometry ) ) {
+		if ( empty( $locality_name ) || empty( $locality_code ) || empty( $geometry ) ) {
 			return new \WP_Error( 'invalid_parameters', 'Locality and geometry cannot be empty', array( 'status' => 400 ) );
 		}
 
-		$this->insert_city_term_n_meta( $locality, $geometry );
+		$this->insert_city_term_n_meta( $locality_name, $locality_code, $geometry );
 
-		return new WP_REST_Response( array( 'message' => 'Geometry set successfully for locality: ' . $locality ), 200 );
+		return new WP_REST_Response(
+			array(
+				'data' => array(
+					'status'  => 200,
+					'message' => 'Geometry set successfully for locality: ' . $locality_name,
+				),
+			),
+			200
+		);
 	}
 
 	/**
-	 * Undocumented function
+	 * Insert term and meta for a city locality.
 	 *
 	 * @param  string $locality Name of the locality to insert as term.
 	 * @param  string $geometry Geometry data to associate with the term.
 	 * @return mixed
 	 * @throws \WP_Error If term insertion or meta addition fails.
 	 */
-	public function insert_city_term_n_meta( $locality, $geometry ) {
+	public function insert_city_term_n_meta( $locality_name, $locality_code, $geometry ) {
 
 		$meta_rt        = false;
 		$locality_terms = get_terms(
 			array(
 				'taxonomy'   => 'city',
 				'hide_empty' => false,
-				'name'       => $locality,
+				'name'       => $locality_name,
 			)
 		);
 
 		if ( is_wp_error( $locality_terms ) || ( is_array( $locality_terms ) && empty( $locality_terms ) ) ) {
-			$locality_term = wp_insert_term( $locality, 'city' );
+			$locality_term = wp_insert_term( $locality_name, 'city' );
 		} else {
 			$locality_term = $locality_terms[0];
 		}
 
+		$term_insee_code_meta = get_term_meta( $locality_term->term_id, 'insee_code', true );
+
+		if ( empty( $term_insee_code_meta ) ) {
+
+			$meta_rt = add_term_meta( $locality_term->term_id, 'insee_code', $locality_code, true );
+			if ( is_wp_error( $meta_rt ) || ! $meta_rt ) {
+				return new \WP_Error( 'geometry_error', 'Failed to set insee code for locality: ' . $locality_name, array( 'status' => 500 ) );
+			}
+		}
+
+		$term_centroid_meta = get_term_meta( $locality_term->term_id, 'centroid', true );
+
+		if ( empty( $term_centroid_meta ) ) {
+			$locality_centroid = $this->wp_get_multipolygon_centroid( $geometry );
+
+			$meta_rt = add_term_meta( $locality_term->term_id, 'centroid', wp_json_encode( $locality_centroid ), true );
+			if ( is_wp_error( $meta_rt ) || ! $meta_rt ) {
+				return new \WP_Error( 'geometry_error', 'Failed to set centroid for locality: ' . $locality, array( 'status' => 500 ) );
+			}
+		}
+
 		$term_geometry_meta = get_term_meta( $locality_term->term_id, 'geometry', true );
+
 		if ( empty( $term_geometry_meta ) ) {
-			$meta_rt = add_term_meta( $locality_term->term_id, 'geometry', wp_json_encode( $geometry ), true );
+
+			$meta_rt = add_term_meta( $locality_term->term_id, 'geometry', wp_json_encode( $this->invert_geometry_coordinates( $geometry['coordinates'] ) ), true );
 
 			if ( is_wp_error( $meta_rt ) || ! $meta_rt ) {
 				return new \WP_Error( 'geometry_error', 'Failed to set geometry for locality: ' . $locality, array( 'status' => 500 ) );
 			}
 		}
+
 		return $meta_rt;
 	}
 
@@ -1441,8 +1474,8 @@ class Xlsapi {
 		// Calculate weighted average centroid
 		if ( $total_area > 0 ) {
 			return array(
-				$weighted_x / $total_area, // longitude
 				$weighted_y / $total_area,  // latitude
+				$weighted_x / $total_area, // longitude
 			);
 		}
 
@@ -1555,10 +1588,34 @@ class Xlsapi {
 
 		$centroid = $this->calculate_multipolygon_centroid( $geometry );
 
-		if ( $centroid === false ) {
+		if ( false === $centroid ) {
 			return new WP_Error( 'calculation_failed', 'Failed to calculate centroid' );
 		}
 
 		return $centroid;
+	}
+
+	protected function invert_geometry_coordinates( $geometry ) {
+		if ( ! is_array( $geometry ) ) {
+			return $geometry; // Return as is if not an array
+		}
+
+		// Invert coordinates for each polygon
+		foreach ( $geometry as &$polygon ) {
+			if ( is_array( $polygon ) ) {
+				foreach ( $polygon as &$ring ) {
+					if ( is_array( $ring ) ) {
+						foreach ( $ring as &$point ) {
+							if ( is_array( $point ) && count( $point ) === 2 ) {
+								// Invert the point coordinates
+								$point = array( $point[1], $point[0] );
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return $geometry;
 	}
 }
