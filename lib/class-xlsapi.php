@@ -322,7 +322,7 @@ class Xlsapi {
 			if ( null === $term_id ) {
 				$this->store_status( $this->status_level['info'], 'deposit', "Aucune catégorie de fournisseur n'a été trouvé, une nouvelle a été créé" );
 				$term_ids = wp_insert_term( $site_data->provider, 'deposit_type' );
-				update_post_meta( $term_ids['term_taxonomy_id'], 'color', 'blue' );
+				update_term_meta( $term_ids['term_taxonomy_id'], 'color', 'blue' );
 				$term_id = array( $term_ids['term_taxonomy_id'] );
 			}
 			wp_set_post_terms( $post_id, $term_id, 'deposit_type' );
