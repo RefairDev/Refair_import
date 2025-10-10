@@ -25,7 +25,7 @@ class Xlsapi {
 	 *
 	 *  @var string $namespace  Rest url path
 	 */
-	private static $namespace = 'xlsinv/v1';
+private static $namespace = 'xlsinv/v1';
 
 	/**
 	 * Status of the import.
@@ -311,21 +311,9 @@ class Xlsapi {
 			wp_set_post_terms( $post_id, $term_id, 'city' );
 
 			/**
-			 *  Set type term.
+			 *  Set provider term (modularized).
 			 */
-
-			$term_id = null;
-			$term    = get_term_by( 'name', $site_data->provider, 'deposit_type' );
-			if ( is_object( $term ) && property_exists( $term, 'term_taxonomy_id' ) ) {
-				$term_id = $term->term_taxonomy_id;
-			}
-			if ( null === $term_id ) {
-				$this->store_status( $this->status_level['info'], 'deposit', "Aucune catégorie de fournisseur n'a été trouvé, une nouvelle a été créé" );
-				$term_ids = wp_insert_term( $site_data->provider, 'deposit_type' );
-				update_term_meta( $term_ids['term_taxonomy_id'], 'color', 'blue' );
-				$term_id = array( $term_ids['term_taxonomy_id'] );
-			}
-			wp_set_post_terms( $post_id, $term_id, 'deposit_type' );
+			$this->set_provider_taxonomy_for_deposit( $post_id, $site_data->provider );
 
 			/**
 			 *  Set images.
@@ -1630,5 +1618,43 @@ class Xlsapi {
 		}
 
 		return $geometry;
+	}
+
+	/**
+	 * Set provider taxonomy for deposit post.
+	 *
+	 * @param int $post_id
+	 * @param string $provider
+	 * @return void
+	 */
+	protected function set_provider_taxonomy_for_deposit( $post_id, $provider ) {
+		$term_id = null;
+		$term    = get_term_by( 'name', $provider, 'deposit_type' );
+		if ( is_object( $term ) && property_exists( $term, 'term_taxonomy_id' ) ) {
+			$term_id = $term->term_taxonomy_id;
+		} else {
+			$this->store_status( $this->status_level['info'], 'deposit', "Aucune catégorie de fournisseur n'a été trouvé, une nouvelle a été créé" );
+			$term_ids = wp_insert_term( $provider, 'deposit_type' );
+			update_term_meta( $term_ids['term_taxonomy_id'], 'color', 'blue' );
+			$term_id = array( $term_ids['term_taxonomy_id'] );
+
+			// Création d'une publication provider associée
+			$provider_slug = sanitize_title($provider);
+			$published_count = wp_count_posts('provider')->publish;
+			$new_order = intval($published_count) + 1;
+
+			$provider_post = array(
+				'post_title'    => $provider,
+				'post_name'     => $provider_slug,
+				'post_type'     => 'provider',
+				'post_status'   => 'draft',
+			);
+			$new_provider_id = wp_insert_post($provider_post);
+
+			if ($new_provider_id && !is_wp_error($new_provider_id)) {
+				update_post_meta($new_provider_id, 'provider_order', $new_order);
+			}
+		}
+		wp_set_post_terms( $post_id, $term_id, 'deposit_type' );
 	}
 }
