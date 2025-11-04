@@ -360,34 +360,69 @@ class Xlsapi {
 	/**
 	 * Extract deposit pictures from input data.
 	 *
-	 * @param  array  $pictures_refs Array of picture references or single string reference.
+	 * @param  mixed  $pictures_refs Array of picture references or single string reference.
 	 * @param  string $inv_ref Reference of the deposit.
-	 * @return void
+	 * @return array Array of valid picture data or empty array on failure.
 	 */
 	protected function extract_deposit_pictures( $pictures_refs, $inv_ref ) {
 		$returned   = array();
 		$ref_inputs = array();
 
+		// Vérification : données d'entrée valides
+		if ( empty( $pictures_refs ) ) {
+			$this->store_status( $this->status_level['info'], 'image', "Aucune référence d'image fournie pour le gisement '{$inv_ref}'" );
+			return $returned;
+		}
+
+		// Normalisation en tableau
 		if ( ! is_array( $pictures_refs ) ) {
 			array_push( $ref_inputs, $pictures_refs );
 		} else {
 			$ref_inputs = $pictures_refs;
 		}
 
-		foreach ( $ref_inputs as $idx => $ref_input ) {
-			$pic_to_extract = '';
+		// Compteur pour suivi des erreurs
+		$total_refs    = count( $ref_inputs );
+		$success_count = 0;
+		$error_count   = 0;
 
-			if ( ! empty( $ref_input ) ) {
-				$pic_to_extract = $ref_input;
+		foreach ( $ref_inputs as $idx => $ref_input ) {
+			
+			// Vérification : référence vide dans la liste
+			if ( empty( $ref_input ) ) {
+				$this->store_status( $this->status_level['warning'], 'image', "Référence d'image vide ignorée (index {$idx}) pour le gisement '{$inv_ref}'" );
+				$error_count++;
+				continue;
 			}
 
-			$extract_returned = $this->extract_deposit_picture( $pic_to_extract );
-			if ( -1 !== $extract_returned ) {
-				array_push( $returned, $extract_returned );
+			$extract_returned = $this->extract_deposit_picture( $ref_input );
+			
+			if ( -1 !== $extract_returned && is_array( $extract_returned ) ) {
+				// Vérification supplémentaire de la structure du retour
+				if ( isset( $extract_returned['id'] ) && isset( $extract_returned['url'] ) ) {
+					array_push( $returned, $extract_returned );
+					$success_count++;
+				} else {
+					$this->store_status( $this->status_level['error'], 'image', "Structure de données invalide pour l'image '{$ref_input}' du gisement '{$inv_ref}'" );
+					$error_count++;
+				}
 			} else {
-				$this->store_status( $this->status_level['error'], 'deposit', "l'image du gisement '" . $ref_input . "' n'a pas pu être traité" );
+				// L'erreur détaillée a déjà été loggée par extract_deposit_picture
+				$error_count++;
 			}
 		}
+
+		// Résumé du traitement
+		if ( $total_refs > 0 ) {
+			if ( $error_count === $total_refs ) {
+				$this->store_status( $this->status_level['error'], 'image', "Échec du traitement de toutes les images ({$total_refs}/{$total_refs}) pour le gisement '{$inv_ref}'" );
+			} elseif ( $error_count > 0 ) {
+				$this->store_status( $this->status_level['warning'], 'image', "Traitement partiel des images : {$success_count}/{$total_refs} réussies pour le gisement '{$inv_ref}'" );
+			} else {
+				$this->store_status( $this->status_level['info'], 'image', "Traitement réussi de {$success_count} image(s) pour le gisement '{$inv_ref}'" );
+			}
+		}
+
 		return $returned;
 	}
 
@@ -399,14 +434,33 @@ class Xlsapi {
 	 */
 	protected function extract_deposit_picture( $picture_ref ) {
 		$returned = array();
+		
+		// Vérification : référence vide
 		if ( empty( $picture_ref ) ) {
+			$this->store_status( $this->status_level['warning'], 'image', "La référence de l'image est vide" );
 			return -1;
 		}
+		
+		// Recherche de l'attachment par nom de fichier
 		$id = $this->get_attachment_id_by_guid( $picture_ref );
 		if ( -1 === $id ) {
+			$this->store_status( $this->status_level['error'], 'image', "L'image '{$picture_ref}' n'a pas été trouvée dans la médiathèque" );
 			return -1;
 		}
-		$url             = wp_get_attachment_image_url( $id, 'full' );
+		
+		// Vérification : ID valide
+		if ( ! is_numeric( $id ) || intval( $id ) <= 0 ) {
+			$this->store_status( $this->status_level['error'], 'image', "ID d'image invalide pour la référence '{$picture_ref}' (ID: {$id})" );
+			return -1;
+		}
+		
+		// Récupération de l'URL de l'image
+		$url = wp_get_attachment_image_url( $id, 'full' );
+		if ( false === $url || empty( $url ) ) {
+			$this->store_status( $this->status_level['error'], 'image', "Impossible de récupérer l'URL de l'image '{$picture_ref}' (ID: {$id})" );
+			return -1;
+		}
+		
 		$returned['id']  = $id;
 		$returned['url'] = $url;
 
