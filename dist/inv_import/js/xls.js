@@ -43951,7 +43951,7 @@ var App = /*#__PURE__*/function (_Component) {
       var invDismantleDate = depositWS.getCell(this.cellRefs["deposit"]['deposit_ref']['cell']).text;
       var invItem = JSON.parse(this.invItemDefault);
       depositWS.eachRow(function (row, rwnb) {
-        if (rwnb > _this3.firstInventoryRow) {
+        if (rwnb >= _this3.firstInventoryRow) {
           var rowRefRadCell = row.getCell(_this3.depositRowRefs["ref"]['cells'][0][_this3.refsCells.radical]);
           var rowRadRef = _this3.getCellValue(rowRefRadCell, _this3.getCellValueType(rowRefRadCell.value));
           if (invRef == rowRadRef && _this3.isToExtract(row)) {
