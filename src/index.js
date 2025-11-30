@@ -298,7 +298,7 @@ class App extends Component {
 		let invItem = JSON.parse(this.invItemDefault);
 
 		depositWS.eachRow((row,rwnb)=>{
-			if(rwnb > this.firstInventoryRow) {
+			if(rwnb >= this.firstInventoryRow) {
 				let rowRefRadCell = row.getCell(this.depositRowRefs["ref"]['cells'][0][this.refsCells.radical]);
 				let rowRadRef = this.getCellValue(rowRefRadCell,this.getCellValueType(rowRefRadCell.value));
 				if (invRef == rowRadRef && this.isToExtract(row)){
