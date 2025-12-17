@@ -43668,7 +43668,7 @@ var App = /*#__PURE__*/function (_Component) {
       },
       "deposit": {
         "deposit_ref": {
-          "cell": "K8",
+          "cell": "H8",
           "name": "Référence du gisement"
         }
       }
@@ -44244,21 +44244,30 @@ var App = /*#__PURE__*/function (_Component) {
     key: "getCellValue",
     value: function getCellValue(cell, type) {
       var returned;
+
+      // Vérification que cell existe
+      if (!cell) {
+        return "";
+      }
       switch (type) {
         case exceljs__WEBPACK_IMPORTED_MODULE_3__.ValueType.Number:
         case exceljs__WEBPACK_IMPORTED_MODULE_3__.ValueType.Boolean:
         case exceljs__WEBPACK_IMPORTED_MODULE_3__.ValueType.String:
           {
-            returned = cell.value;
+            returned = cell.value || "";
             break;
           }
         case exceljs__WEBPACK_IMPORTED_MODULE_3__.ValueType.Formula:
           {
             var regex = /^([A-Za-z0-9_]+\!)?[A-Z]+[1-9]\d*$/; /* cell coordinate pattern AA..00..*/
 
-            if (regex.test(cell.value.sharedFormula) === true) {
-              var linkedCell = cell.worksheet.getCell(cell.value.sharedFormula);
-              returned = this.getCellValue(linkedCell, this.getCellValueType(linkedCell.value));
+            if (cell.value && cell.value.sharedFormula && regex.test(cell.value.sharedFormula) === true) {
+              if (cell.worksheet) {
+                var linkedCell = cell.worksheet.getCell(cell.value.sharedFormula);
+                returned = this.getCellValue(linkedCell, this.getCellValueType(linkedCell.value));
+              } else {
+                returned = 0;
+              }
             } else {
               returned = cell.result ? cell.result : 0;
             }
@@ -44266,24 +44275,33 @@ var App = /*#__PURE__*/function (_Component) {
           }
         case exceljs__WEBPACK_IMPORTED_MODULE_3__.ValueType.Hyperlink:
           {
-            returned = cell.text;
-            if (cell.text.hasOwnProperty('richText')) {
+            returned = cell.text || "";
+            if (cell.text && cell.text.hasOwnProperty('richText') && Array.isArray(cell.text.richText)) {
               returned = cell.text.richText.reduce(function (acc, elt) {
-                return acc + elt.text;
+                return acc + (elt && elt.text ? elt.text : '');
               }, '');
             }
             break;
           }
         case exceljs__WEBPACK_IMPORTED_MODULE_3__.ValueType.Error:
           {
-            returned = cell.error;
+            returned = cell.error || "";
             break;
           }
         case exceljs__WEBPACK_IMPORTED_MODULE_3__.ValueType.RichText:
           {
-            returned = cell.value.richText.reduce(function (acc, elt) {
-              return acc + elt.text;
-            }, '');
+            if (cell.value && cell.value.richText && Array.isArray(cell.value.richText)) {
+              returned = cell.value.richText.reduce(function (acc, elt) {
+                return acc + (elt && elt.text ? elt.text : '');
+              }, '');
+            } else {
+              returned = "";
+            }
+            break;
+          }
+        default:
+          {
+            returned = "";
             break;
           }
       }

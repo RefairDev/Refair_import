@@ -235,6 +235,11 @@ private static $namespace = 'xlsinv/v1';
 		$pictures = array_merge( $pictures, $thumbnail_picture );
 
 		if ( property_exists( $site_data, 'photos' ) ) {
+			if ( is_array( $site_data->photos ) ) {
+				$site_data->photos = array_filter( $site_data->photos );
+				$nb_photos         = count( $site_data->photos );
+				$this->store_status( $this->status_level['info'], 'deposit', "{$nb_photos} élément(s) non vide(s) à traiter pour la galerie." );
+			}
 			$gallery_pictures = $this->extract_deposit_pictures( $site_data->photos, $site_data->deposit_name );
 		} else {
 			$this->store_status( $this->status_level['info'], 'deposit', 'Aucune photo de galerie à enregistrer' );

@@ -92,7 +92,7 @@ class App extends Component {
 				"template_version":		{"cell":"D24",						"name":"version de la template d'inventaire", 	"options":{}},
 			},
 			"deposit":{
-				"deposit_ref": 	{"cell":"K8",	"name":"Référence du gisement"},
+				"deposit_ref": 	{"cell":"H8",	"name":"Référence du gisement"},
 			}
 
 		}		
@@ -564,21 +564,31 @@ class App extends Component {
 	getCellValue(cell, type){
 
 		let returned;
+		
+		// Vérification que cell existe
+		if (!cell) {
+			return "";
+		}
+
 		switch (type){
 			case ExcelJS.ValueType.Number:
 			case ExcelJS.ValueType.Boolean:
 			case ExcelJS.ValueType.String: 
 				{
-					returned = cell.value;
+					returned = cell.value || "";
 					break;
 				}
 			case ExcelJS.ValueType.Formula:
 				{
 					let regex = /^([A-Za-z0-9_]+\!)?[A-Z]+[1-9]\d*$/; /* cell coordinate pattern AA..00..*/
 					
-					if ( regex.test(cell.value.sharedFormula) === true ) {
-						let linkedCell = cell.worksheet.getCell(cell.value.sharedFormula);
-						returned = this.getCellValue(linkedCell,this.getCellValueType(linkedCell.value));
+					if (cell.value && cell.value.sharedFormula && regex.test(cell.value.sharedFormula) === true ) {
+						if (cell.worksheet) {
+							let linkedCell = cell.worksheet.getCell(cell.value.sharedFormula);
+							returned = this.getCellValue(linkedCell,this.getCellValueType(linkedCell.value));
+						} else {
+							returned = 0;
+						}
 					} else{
 						returned = (cell.result)?cell.result:0;	
 					}
@@ -587,21 +597,30 @@ class App extends Component {
 				}
 			case ExcelJS.ValueType.Hyperlink:
 				{
-					returned = cell.text;
-					if (cell.text.hasOwnProperty('richText')){
-						returned = cell.text.richText.reduce((acc,elt)=>acc+elt.text,'');
+					returned = cell.text || "";
+					if (cell.text && cell.text.hasOwnProperty('richText') && Array.isArray(cell.text.richText)){
+						returned = cell.text.richText.reduce((acc,elt)=>acc+(elt && elt.text ? elt.text : ''),'');
 					}
 					break;
 				}						
 			case ExcelJS.ValueType.Error:
 				{
-					returned = cell.error;
+					returned = cell.error || "";
 					break;
 				}	
 
 			case ExcelJS.ValueType.RichText:
 				{					
-					returned = cell.value.richText.reduce((acc,elt)=>acc+elt.text,'');
+					if (cell.value && cell.value.richText && Array.isArray(cell.value.richText)) {
+						returned = cell.value.richText.reduce((acc,elt)=>acc+(elt && elt.text ? elt.text : ''),'');
+					} else {
+						returned = "";
+					}
+					break;
+				}
+			default:
+				{
+					returned = "";
 					break;
 				}
 		}
